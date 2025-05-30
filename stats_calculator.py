@@ -14,6 +14,8 @@ def calculate_stats_per_match(club_name, calculation_type, csv_file_path="data/p
         - "xga": List of expected goals against per match
         - "goals_for": List of goals scored per match
         - "goals_against": List of goals conceded per match
+        - "goal_difference": List of goal difference per match (goals for - goals against)
+        - "xg_difference": List of expected goal difference per match (xG for - xG against)
     csv_file_path (str): Path to the CSV file containing match data
     
     Returns:
@@ -85,13 +87,49 @@ def calculate_stats_per_match(club_name, calculation_type, csv_file_path="data/p
         
         return club_matches['goals_against'].tolist()
     
+    def _calculate_goal_difference(club_matches):
+        try:
+            club_matches[['home_goals', 'away_goals']] = club_matches['Score'].str.split('–', expand=True).astype(int)
+        except ValueError:
+            return []
+        
+        # Calculate goal difference (goals for - goals against)
+        goals_for = np.where(
+            club_matches['is_home'], 
+            club_matches['home_goals'], 
+            club_matches['away_goals']
+        )
+        
+        goals_against = np.where(
+            club_matches['is_home'], 
+            club_matches['away_goals'], 
+            club_matches['home_goals']
+        )
+        
+        goal_difference = goals_for - goals_against
+        return goal_difference.tolist()
+    
+    def _calculate_xg_difference(club_matches):
+        home_xg = pd.to_numeric(club_matches.iloc[:, 5], errors='coerce')
+        away_xg = pd.to_numeric(club_matches.iloc[:, 7], errors='coerce')
+        
+        # Calculate xG difference (xG for - xG against)
+        xg_for = np.where(club_matches['is_home'], home_xg, away_xg)
+        xg_against = np.where(club_matches['is_home'], away_xg, home_xg)
+        
+        xg_difference = xg_for - xg_against
+        xg_diff_list = xg_difference.tolist()
+        return [round(val, 2) for val in xg_diff_list]
+    
     # Dictionary mapping calculation types to functions
     calculations = {
         "points": _calculate_points,
         "xg": _calculate_xg,
         "xga": _calculate_xga,
         "goals_for": _calculate_goals_for,
-        "goals_against": _calculate_goals_against
+        "goals_against": _calculate_goals_against,
+        "goal_difference": _calculate_goal_difference,
+        "xg_difference": _calculate_xg_difference
     }
     
     if calculation_type not in calculations:
