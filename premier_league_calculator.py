@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import os
 
 def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_league_matches_20250530_130423.csv"):
@@ -15,6 +16,9 @@ def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_lea
     list: The calculated statistic
     """
     
+    if calculation_type != "points_per_match":
+        raise ValueError(f"Unknown calculation type: {calculation_type}")
+    
     # Check if file exists
     if not os.path.exists(csv_file_path):
         raise FileNotFoundError(f"CSV file not found: {csv_file_path}")
@@ -23,70 +27,42 @@ def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_lea
     try:
         df = pd.read_csv(csv_file_path)
     except Exception as e:
-        raise Exception(f"Error reading CSV file: {e}")
+        raise IOError(f"Error reading CSV file: {e}")
     
-    # Normalize club name for comparison (handle variations)
     club_name = club_name.strip()
     
-    # Initialize counter
-    points_per_match = []  # New list to store points from each match
+    # Filter matches where the club played and score is valid
+    club_matches = df[
+        (df['Home'].str.strip() == club_name) | 
+        (df['Away'].str.strip() == club_name)
+    ].copy()
     
-    # Process each match in chronological order
-    for _, row in df.iterrows():
-        home_team = row['Home'].strip()
-        away_team = row['Away'].strip()
-        score = row['Score'].strip()
-        
-        # Skip if score is not in expected format
-        if '–' not in score:
-            continue
-            
-        try:
-            # Parse the score
-            home_goals, away_goals = map(int, score.split('–'))
-        except ValueError:
-            continue
-        
-        # Check if the club is playing in this match
-        is_home = (home_team == club_name)
-        is_away = (away_team == club_name)
-        
-        if not (is_home or is_away):
-            continue
-        
-        match_points = 0  # Points earned in this specific match
-        
-        if is_home:
-            # Club is playing at home     
-            if home_goals > away_goals:
-                # Win
-                match_points = 3
-            elif home_goals == away_goals:
-                # Draw
-                match_points = 1
-            else:
-                # Loss
-                match_points = 0
-        
-        elif is_away:
-            # Club is playing away           
-            if away_goals > home_goals:
-                # Win
-                match_points = 3
-            elif away_goals == home_goals:
-                # Draw
-                match_points = 1
-            else:
-                # Loss
-                match_points = 0
-        
-        # Add the points from this match to the list
-        points_per_match.append(match_points)
+    # Filter out invalid scores
+    club_matches = club_matches[club_matches['Score'].str.contains('–', na=False)]
     
-    if calculation_type == "points_per_match":
-        return points_per_match
-    else:
-        raise ValueError(f"Unknown calculation type: {calculation_type}")
+    # Parse scores
+    try:
+        club_matches[['home_goals', 'away_goals']] = club_matches['Score'].str.split('–', expand=True).astype(int)
+    except ValueError:
+        return []
+    
+    # Determine if club is home team
+    club_matches['is_home'] = club_matches['Home'].str.strip() == club_name
+    
+    # Calculate points
+    conditions = [
+        # Win conditions
+        (club_matches['is_home'] & (club_matches['home_goals'] > club_matches['away_goals'])) |
+        (~club_matches['is_home'] & (club_matches['away_goals'] > club_matches['home_goals'])),
+        # Draw conditions  
+        (club_matches['home_goals'] == club_matches['away_goals'])
+    ]
+    
+    choices = [3, 1]  # Win = 3 points, Draw = 1 point, Loss = 0 points (default)
+    
+    club_matches['points'] = np.select(conditions, choices, default=0)
+    
+    return club_matches['points'].tolist()
 
 def get_available_teams(csv_file_path="data/premier_league_matches_20250530_130423.csv"):
     """
