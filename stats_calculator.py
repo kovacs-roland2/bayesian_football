@@ -2,16 +2,18 @@ import pandas as pd
 import numpy as np
 import os
 
-def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_league_matches_20250530_130423.csv"):
+def calculate_stats_per_match(club_name, calculation_type, csv_file_path="data/premier_league_matches_20250530_130423.csv"):
     """
     Calculate various Premier League statistics for a given club.
     
     Parameters:
     club_name (str): Name of the club (e.g., "Arsenal", "Manchester City")
     calculation_type (str): Type of calculation to perform. Options:
-        - "points_per_match": List of points collected in each match (0, 1, or 3)
-        - "xg_per_match": List of expected goals per match
-        - "xga_per_match": List of expected goals against per match
+        - "points": List of points collected in each match (0, 1, or 3)
+        - "xg": List of expected goals per match
+        - "xga": List of expected goals against per match
+        - "goals_for": List of goals scored per match
+        - "goals_against": List of goals conceded per match
     csv_file_path (str): Path to the CSV file containing match data
     
     Returns:
@@ -19,27 +21,25 @@ def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_lea
     """
     
     def _calculate_points(club_matches):
-        # Filter out invalid scores for points calculation
-        valid_matches = club_matches[club_matches['Score'].str.contains('–', na=False)]
         
         try:
-            valid_matches[['home_goals', 'away_goals']] = valid_matches['Score'].str.split('–', expand=True).astype(int)
+            club_matches[['home_goals', 'away_goals']] = club_matches['Score'].str.split('–', expand=True).astype(int)
         except ValueError:
             return []
         
         # Calculate points
         conditions = [
             # Win conditions
-            (valid_matches['is_home'] & (valid_matches['home_goals'] > valid_matches['away_goals'])) |
-            (~valid_matches['is_home'] & (valid_matches['away_goals'] > valid_matches['home_goals'])),
+            (club_matches['is_home'] & (club_matches['home_goals'] > club_matches['away_goals'])) |
+            (~club_matches['is_home'] & (club_matches['away_goals'] > club_matches['home_goals'])),
             # Draw conditions  
-            (valid_matches['home_goals'] == valid_matches['away_goals'])
+            (club_matches['home_goals'] == club_matches['away_goals'])
         ]
         
         choices = [3, 1]  # Win = 3 points, Draw = 1 point, Loss = 0 points (default)
-        valid_matches['points'] = np.select(conditions, choices, default=0)
+        club_matches['points'] = np.select(conditions, choices, default=0)
         
-        return valid_matches['points'].tolist()
+        return club_matches['points'].tolist()
     
     def _calculate_xg(club_matches):
         home_xg = pd.to_numeric(club_matches.iloc[:, 5], errors='coerce')
@@ -55,11 +55,43 @@ def calculate_stats(club_name, calculation_type, csv_file_path="data/premier_lea
         club_matches['club_xga'] = np.where(club_matches['is_home'], away_xg, home_xg)
         return club_matches['club_xga'].fillna(0).tolist()
     
+    def _calculate_goals_for(club_matches):
+        try:
+            club_matches[['home_goals', 'away_goals']] = club_matches['Score'].str.split('–', expand=True).astype(int)
+        except ValueError:
+            return []
+        
+        # Get goals scored by the club
+        club_matches['goals_for'] = np.where(
+            club_matches['is_home'], 
+            club_matches['home_goals'], 
+            club_matches['away_goals']
+        )
+        
+        return club_matches['goals_for'].tolist()
+    
+    def _calculate_goals_against(club_matches): 
+        try:
+            club_matches[['home_goals', 'away_goals']] = club_matches['Score'].str.split('–', expand=True).astype(int)
+        except ValueError:
+            return []
+        
+        # Get goals conceded by the club
+        club_matches['goals_against'] = np.where(
+            club_matches['is_home'], 
+            club_matches['away_goals'], 
+            club_matches['home_goals']
+        )
+        
+        return club_matches['goals_against'].tolist()
+    
     # Dictionary mapping calculation types to functions
     calculations = {
-        "points_per_match": _calculate_points,
-        "xg_per_match": _calculate_xg,
-        "xga_per_match": _calculate_xga
+        "points": _calculate_points,
+        "xg": _calculate_xg,
+        "xga": _calculate_xga,
+        "goals_for": _calculate_goals_for,
+        "goals_against": _calculate_goals_against
     }
     
     if calculation_type not in calculations:
